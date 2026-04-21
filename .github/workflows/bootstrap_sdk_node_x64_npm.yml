@@ -121,7 +121,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sdk-node-${{ matrix.name }}-binary
-          path: crates/sdk-node/surfpool-sdk.*.node
+          path: crates/sdk-node/surfpool-sdk/surfpool-sdk.*.node
           if-no-files-found: error
 
       - name: Upload package metadata
