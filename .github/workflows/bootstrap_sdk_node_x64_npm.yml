@@ -177,9 +177,9 @@ jobs:
           npm install -g npm@^11.10.0
           npm --version
 
-      - name: Install npm dependencies
+      - name: Install publish tooling
         working-directory: crates/sdk-node
-        run: npm ci
+        run: npm install --package-lock=false --omit=optional
 
       - name: Download native binaries
         uses: actions/download-artifact@v4
