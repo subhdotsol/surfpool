@@ -1,0 +1,26 @@
+[package]
+name = "surfpool-sdk-node"
+description = "Node.js bindings for the Surfpool SDK"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/solana-foundation/surfpool"
+include = ["/src", "build.rs"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", features = ["napi4", "napi6"] }
+napi-derive = "2.16"
+hiro-system-kit = { workspace = true }
+surfpool-sdk = { workspace = true }
+surfpool-types = { workspace = true }
+solana-keypair = { workspace = true }
+solana-epoch-info = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+napi-build = "2"
