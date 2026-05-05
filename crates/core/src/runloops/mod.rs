@@ -24,10 +24,6 @@ use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
 use libloading::{Library, Symbol};
 use serde::Serialize;
 use solana_commitment_config::CommitmentConfig;
-#[cfg(feature = "geyser_plugin")]
-use solana_geyser_plugin_manager::geyser_plugin_manager::{
-    GeyserPluginManager, LoadedGeyserPlugin,
-};
 use solana_message::SimpleAddressLoader;
 use solana_transaction::sanitized::{MessageHash, SanitizedTransaction};
 use solana_transaction_status::RewardsAndNumPartitions;
@@ -100,9 +96,9 @@ pub(crate) fn load_plugin_from_config(
         (Box::from_raw(plugin_raw), lib)
     };
 
-    let name = plugin.name().to_string();
-
     let mut plugin = plugin;
+
+    let name = plugin.name().to_string();
     plugin
         .on_load(config_file, is_reload)
         .map_err(|e| format!("Failed to call on_load for plugin '{}': {}", name, e))?;
@@ -616,11 +612,6 @@ fn start_geyser_runloop(
     let handle: JoinHandle<Result<(), String>> = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
         let mut indexing_enabled = false;
 
-        #[cfg(feature = "geyser_plugin")]
-        let mut plugin_manager = GeyserPluginManager::new();
-        #[cfg(not(feature = "geyser_plugin"))]
-        let mut plugin_manager = ();
-
         let mut managed_plugins: Vec<ManagedPlugin> = vec![];
 
         // helper to log errors that can't be propagated
@@ -649,57 +640,6 @@ fn start_geyser_runloop(
                     log_error(format!("Failed to load geyser plugin from '{}': {}", config_file, e));
                 }
             }
-        }
-
-        #[cfg(feature = "geyser_plugin")]
-        for plugin_config_path in plugin_config_paths.into_iter() {
-            let plugin_manifest_location = FileLocation::from_path(plugin_config_path);
-            let config_file = plugin_manifest_location.read_content_as_utf8()?;
-            let result: serde_json::Value = match json5::from_str(&config_file) {
-                Ok(res) => res,
-                Err(e) => {
-                    let error = format!("Unable to read manifest: {}", e);
-                    let _ = simnet_events_tx.send(SimnetEvent::error(error.clone()));
-                    return Err(error)
-                }
-            };
-
-            let plugin_dylib_path = match result.get("libpath").map(|p| p.as_str()) {
-                Some(Some(name)) => name,
-                _ => {
-                    let error = format!("Plugin config file should include a 'libpath' field: {}", plugin_manifest_location);
-                    let _ = simnet_events_tx.send(SimnetEvent::error(error.clone()));
-                    return Err(error)
-                }
-            };
-
-            let mut plugin_dylib_location = plugin_manifest_location.get_parent_location().expect("path invalid");
-            plugin_dylib_location.append_path(&plugin_dylib_path).expect("path invalid");
-
-            let (plugin, lib) = unsafe {
-                let lib = match Library::new(&plugin_dylib_location.to_string()) {
-                    Ok(lib) => lib,
-                    Err(e) => {
-                        log_error(format!("Unable to load plugin {}: {}", plugin_dylib_location.to_string(), e.to_string()));
-                        continue;
-                    }
-                };
-                let constructor: Symbol<PluginConstructor> = lib
-                    .get(b"_create_plugin")
-                    .map_err(|e| format!("{}", e.to_string()))?;
-                let plugin_raw = constructor();
-                (Box::from_raw(plugin_raw), lib)
-            };
-            indexing_enabled = true;
-
-            let mut plugin = LoadedGeyserPlugin::new(lib, plugin, None);
-            if let Err(e) = plugin.on_load(&plugin_manifest_location.to_string(), false) {
-                let error = format!("Unable to load plugin:: {}", e.to_string());
-                let _ = simnet_events_tx.send(SimnetEvent::error(error.clone()));
-                return Err(error)
-            }
-
-            plugin_manager.plugins.push(plugin);
         }
 
         let err = loop {
@@ -740,13 +680,6 @@ fn start_geyser_runloop(
                                 log_error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e))
                             };
                         }
-
-                        #[cfg(feature = "geyser_plugin")]
-                        for plugin in plugin_manager.plugins.iter() {
-                            if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_3(&transaction_replica), transaction_with_status_meta.slot) {
-                                log_error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e))
-                            };
-                        }
                     }
                     Ok(GeyserEvent::UpdateAccount(account_update)) => {
                         let GeyserAccountUpdate {
@@ -771,13 +704,6 @@ fn start_geyser_runloop(
                         for plugin in managed_plugins.iter().map(|p| &*p.plugin) {
                             if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
                                 log_error(format!("Failed to update account in Geyser plugin: {:?}", e));
-                            }
-                        }
-
-                        #[cfg(feature = "geyser_plugin")]
-                        for plugin in plugin_manager.plugins.iter() {
-                            if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
-                                log_error(format!("Failed to update account in Geyser plugin: {:?}", e))
                             }
                         }
                     }
@@ -807,23 +733,9 @@ fn start_geyser_runloop(
                                 log_error(format!("Failed to send startup account update to Geyser plugin: {:?}", e));
                             }
                         }
-
-                        #[cfg(feature = "geyser_plugin")]
-                        for plugin in plugin_manager.plugins.iter() {
-                            if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, true) {
-                                log_error(format!("Failed to send startup account update to Geyser plugin: {:?}", e))
-                            }
-                        }
                     }
                     Ok(GeyserEvent::EndOfStartup) => {
                         for plugin in managed_plugins.iter().map(|p| &*p.plugin) {
-                            if let Err(e) = plugin.notify_end_of_startup() {
-                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify end of startup to Geyser plugin: {:?}", e)));
-                            }
-                        }
-
-                        #[cfg(feature = "geyser_plugin")]
-                        for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.notify_end_of_startup() {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify end of startup to Geyser plugin: {:?}", e)));
                             }
@@ -837,13 +749,6 @@ fn start_geyser_runloop(
                         };
 
                         for plugin in managed_plugins.iter().map(|p| &*p.plugin) {
-                            if let Err(e) = plugin.update_slot_status(slot, parent, &slot_status) {
-                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update slot status in Geyser plugin: {:?}", e)));
-                            }
-                        }
-
-                        #[cfg(feature = "geyser_plugin")]
-                        for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.update_slot_status(slot, parent, &slot_status) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update slot status in Geyser plugin: {:?}", e)));
                             }
@@ -872,13 +777,6 @@ fn start_geyser_runloop(
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify block metadata to Geyser plugin: {:?}", e)));
                             }
                         }
-
-                        #[cfg(feature = "geyser_plugin")]
-                        for plugin in plugin_manager.plugins.iter() {
-                            if let Err(e) = plugin.notify_block_metadata(ReplicaBlockInfoVersions::V0_0_4(&block_info)) {
-                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify block metadata to Geyser plugin: {:?}", e)));
-                            }
-                        }
                     }
                     Ok(GeyserEvent::NotifyEntry(entry_info)) => {
                         let entry_replica = ReplicaEntryInfoV2 {
@@ -891,13 +789,6 @@ fn start_geyser_runloop(
                         };
 
                         for plugin in managed_plugins.iter().map(|p| &*p.plugin) {
-                            if let Err(e) = plugin.notify_entry(ReplicaEntryInfoVersions::V0_0_2(&entry_replica)) {
-                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify entry to Geyser plugin: {:?}", e)));
-                            }
-                        }
-
-                        #[cfg(feature = "geyser_plugin")]
-                        for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.notify_entry(ReplicaEntryInfoVersions::V0_0_2(&entry_replica)) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify entry to Geyser plugin: {:?}", e)));
                             }

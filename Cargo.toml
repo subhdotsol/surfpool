@@ -117,7 +117,6 @@ solana-epoch-schedule = { version = "3.0", default-features = false }
 solana-ed25519-program = { version = "3.0", default-features = false }
 solana-feature-gate-interface = { version = "3.1", default-features = false }
 solana-genesis-config = { version = "3.0", default-features = false }
-# solana-geyser-plugin-manager = { version = "=3.1.6", default-features = false }  # Disabled: version conflicts with litesvm 0.9.1 (requires solana-instruction =3.0.0 vs ~3.1)
 solana-hash = { version = "3.1", default-features = false }
 solana-inflation = { version = "3.0", default-features = false }
 solana-instruction = { version = "3.1", default-features = false }
