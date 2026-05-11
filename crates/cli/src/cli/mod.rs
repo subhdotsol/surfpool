@@ -31,9 +31,9 @@ use surfpool_types::{
 use txtx_core::manifest::WorkspaceManifest;
 use txtx_gql::kit::{helpers::fs::FileLocation, types::frontend::LogLevel};
 
-use crate::runbook::handle_execute_runbook_command;
-
+use crate::{cli::update::handle_update_command, runbook::handle_execute_runbook_command};
 mod simnet;
+mod update;
 
 #[derive(Clone)]
 pub struct Context {
@@ -128,6 +128,9 @@ enum Command {
     /// Start MCP server
     #[clap(name = "mcp", bin_name = "mcp")]
     Mcp,
+    /// Update Surfpool to the latest version
+    #[clap(name = "update", bin_name = "update")]
+    Update(UpdateCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -552,6 +555,16 @@ pub struct ExecuteRunbook {
     pub log_dir: String,
 }
 
+#[derive(Parser, PartialEq, Clone, Debug)]
+pub struct UpdateCommand {
+    /// Flag to skip confirmation prompt
+    #[arg(long = "yes", short = 'y')]
+    pub skip_confirm: bool,
+    /// To update to a specific version instead of the latest
+    #[arg(long = "version", short = 'v')]
+    pub version: Option<String>,
+}
+
 impl ExecuteRunbook {
     pub fn default_localnet(runbook_name: &str) -> ExecuteRunbook {
         ExecuteRunbook {
@@ -670,6 +683,7 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         }
         Command::List(cmd) => hiro_system_kit::nestable_block_on(handle_list_command(cmd, ctx)),
         Command::Mcp => hiro_system_kit::nestable_block_on(handle_mcp_command(ctx)),
+        Command::Update(cmd) => hiro_system_kit::nestable_block_on(handle_update_command(cmd)),
     }
 }
 
